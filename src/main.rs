@@ -49,29 +49,12 @@ fn main() {
         .map(|entry| entry.path())
         .collect();
 
-    
-    // let pool = rayon::ThreadPoolBuilder::new().num_threads(22).build().unwrap();
-    // pool.install(op)
-    // for file in files {
-    //     pool.install(|| process_files(&file))
-    // }
-
-    // files.into_iter().map(|file| process_files(&file));
-    // for file in files {
-    //     pool.install(|| process_files(&file))
-    // }
-
+    let mut count = 0;
     for file in files {
-        process_file(&file)
+        process_file(&file);
+        count += 1;
     }
 
+    println!("Processed {} files.", count)
 
-    // let texts: Vec<_> = files.par_iter()
-    //     .map(|path| process_files(path)).collect();
-    
-    // for path in files {
-    //     process_files(path.unwrap().path());
-     
-    //     // println!("File: {}", path.unwrap().file_name().to_str().unwrap())
-    // }
 }
