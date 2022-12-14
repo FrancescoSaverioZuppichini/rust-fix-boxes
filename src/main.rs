@@ -1,47 +1,59 @@
-use std::fs;
 use std::env;
+use std::fs;
 use std::path::PathBuf;
 use rayon::prelude::*;
-use std::fs::File;
-use std::io::{self, BufRead, BufReader};
+use std::fs::write;
+use std::time::Instant;
+use log::{info, trace, warn, debug};
+use env_logger;
 
-fn bbox_xywh_to_segment(bbox: [f64;4]) -> [f64;8] {
+fn bbox_xywh_to_segment(bbox: &[f64]) -> [f64; 8] {
     // center, width height
-    let [x, y, width, height] = bbox;
-    let x1 = x - width / 2.0;
-    let y1 =  y - height / 2.0;
-    let x2 = x1 + width;
-    let y2 = y1 + height;
-    [x1, y1, x1, y2, x2, y2,  x2, y1]
+    if let [x, y, width, height] = bbox {
+        let x1 = x - width / 2.0;
+        let y1 = y - height / 2.0;
+        let x2 = x1 + width;
+        let y2 = y1 + height;
+        return [x1, y1, x1, y2, x2, y2, x2, y1];
+    } else { panic!("Boom")}
 }
 
 
-fn process_file(path: &PathBuf) {
-    let file = File::open(path).unwrap();
-    let buffer = BufReader::new(file);
+fn process_file(path: &PathBuf) -> (String, i32) {
+    let mut num_bbox_fixed = 0;
+    let mut should_update = false;
+    let content = fs::read_to_string(path).unwrap();
     let mut new_lines: Vec<String> = Vec::new();
-    for line in buffer.lines() {
-        let line = line.unwrap();
+    for line in content.split('\n').map(|x| String::from(x)) {
         let split_line = line.split_whitespace();
         let count = split_line.clone().count();
         match count {
             5 => {
                 let numbers: Vec<f64> = split_line.map(|s| s.parse().unwrap()).collect();
-                let mut bbox: [f64; 4] = [0.0;4];
-                bbox.copy_from_slice(&numbers[1..5]);
-                println!("{:?}", bbox_xywh_to_segment(bbox));
-            },
-            _ => new_lines.push(line)  
+                // we do not copy data, we refer to the slice from the splitted line
+                let segment = bbox_xywh_to_segment(&numbers[1..5]);
+                let parsed_segment: String = segment.map(|x| x.to_string()).to_vec().join(" ");
+                new_lines.push(parsed_segment);
+                should_update = true;
+                num_bbox_fixed += 1
+            }
+            _ => new_lines.push(line),
         }
-        // new_lines.push(line.unwrap());
     }
+    if should_update {
+        write(path, new_lines.join("\n")).expect(format!("[{:?}] Error writing.", path).as_str());
+    }
+    (
+        path.file_name().unwrap().to_str().unwrap().to_string(),
+        num_bbox_fixed,
+    )
 }
 
 fn main() {
-    // println!("{}", sum_of_squares(&[2,3,4,5,6,7,8,9,10,12,13,14,15,16, 100, 200, 300]))
+    env_logger::init();
     let args: Vec<String> = env::args().collect();
     let dir = args.get(1).expect("You should pass a directory");
-    println!("Reading files in {}", dir);
+    info!("Reading files in {}", dir);
     let paths = fs::read_dir(dir).unwrap();
     let files: Vec<_> = paths
         .filter_map(|entry| entry.ok())
@@ -49,12 +61,25 @@ fn main() {
         .map(|entry| entry.path())
         .collect();
 
-    let mut count = 0;
-    for file in files {
-        process_file(&file);
-        count += 1;
+    let num_files = files.len();
+    let now = Instant::now();
+
+    let stats: Vec<(String, i32)> = files
+        .into_par_iter()
+        .map(|file| process_file(&file))
+        .collect();
+
+    let elapsed = now.elapsed();
+
+    for stat in stats {
+        let fixed_bboxes = stat.1;
+        if fixed_bboxes > 0 {
+            debug!("{} - fixed {} bboxes.", stat.0, stat.1)
+        };
     }
-
-    println!("Processed {} files.", count)
-
+    info!(
+        "Processed {} files in {} ms",
+        num_files,
+        elapsed.as_millis()
+    );
 }
